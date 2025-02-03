@@ -1,13 +1,18 @@
 package main
 
 import (
-	"log"
-	"net/http"
-	"os"
-
+	"context"
+	"errors"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
 )
 
 type apiConfig struct {
@@ -19,6 +24,7 @@ type apiConfig struct {
 	s3Bucket         string
 	s3Region         string
 	s3CfDistribution string
+	s3Client         *s3.Client
 	port             string
 }
 
@@ -90,6 +96,13 @@ func main() {
 		port:             port,
 	}
 
+	defaultConfig, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		log.Fatalf("Error loading default aws config: %v", err)
+	}
+
+	cfg.s3Client = s3.NewFromConfig(defaultConfig)
+
 	err = cfg.ensureAssetsDir()
 	if err != nil {
 		log.Fatalf("Couldn't create assets directory: %v", err)
@@ -124,4 +137,25 @@ func main() {
 
 	log.Printf("Serving on: http://localhost:%s/app/\n", port)
 	log.Fatal(srv.ListenAndServe())
+}
+
+func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
+	if video.VideoURL == nil {
+		return video, nil
+	}
+
+	videoURLParts := strings.Split(*video.VideoURL, ",")
+	if len(videoURLParts) != 2 {
+		return video, errors.New("invalid VideoURL format, expected 'bucket,key'")
+	}
+
+	bucket, key := videoURLParts[0], videoURLParts[1]
+
+	presignedUrl, err := generatePresignedUrl(cfg.s3Client, bucket, key, 15*time.Minute)
+	if err != nil {
+		return video, err
+	}
+
+	video.VideoURL = &presignedUrl
+	return video, nil
 }
