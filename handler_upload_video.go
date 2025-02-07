@@ -78,8 +78,18 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "failed to create temp file", err)
 		return
 	}
-	defer os.Remove(tempFile.Name())
-	defer tempFile.Close()
+	defer func(name string) {
+		err := os.Remove(name)
+		if err != nil {
+
+		}
+	}(tempFile.Name())
+	defer func(tempFile *os.File) {
+		err := tempFile.Close()
+		if err != nil {
+
+		}
+	}(tempFile)
 
 	if _, err = io.Copy(tempFile, file); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "failed to copy file contents", err)
@@ -112,14 +122,24 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		respondWithError(w, http.StatusInternalServerError, "Error processing video", err)
 		return
 	}
-	defer os.Remove(processedVideoPath)
+	defer func(name string) {
+		err := os.Remove(name)
+		if err != nil {
+
+		}
+	}(processedVideoPath)
 
 	processedFile, err := os.Open(processedVideoPath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to open processed file", err)
 		return
 	}
-	defer processedFile.Close()
+	defer func(processedFile *os.File) {
+		err := processedFile.Close()
+		if err != nil {
+
+		}
+	}(processedFile)
 
 	videoKey := fmt.Sprintf("%s/%s.%s", videoAspectRatio, randomFileName, "mp4")
 
@@ -135,7 +155,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	videoS3URL := fmt.Sprintf("%s,%s", os.Getenv("S3_BUCKET"), videoKey)
+	videoS3URL := fmt.Sprintf("%s/%s", cfg.s3CfDistribution, videoKey)
 	dbVideo.VideoURL = &videoS3URL
 	err = cfg.db.UpdateVideo(dbVideo)
 	if err != nil {
@@ -143,11 +163,5 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	presignedVideo, err := cfg.dbVideoToSignedVideo(dbVideo)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Failed to sign video", err)
-		return
-	}
-
-	respondWithJSON(w, http.StatusCreated, presignedVideo)
+	respondWithJSON(w, http.StatusCreated, dbVideo)
 }
